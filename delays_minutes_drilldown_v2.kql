@@ -1,0 +1,52 @@
+// delays_minutes_drilldown.kql
+// Drill-down: S1/S2/S3 delays in minutes, with hh:mm:ss display and host pivots.
+
+let lookback = 24h;
+let threshold = 10m;                 // adjust to 5m/15m/... per policy
+let threshold_min = toreal(threshold / 1m);  // threshold in minutes (real)
+
+let fn_resolve_source_time = (T:(*)) {
+  T
+  | extend SourceTime = coalesce(
+      todatetime(column_ifexists("Timestamp",        datetime(null))),
+      todatetime(column_ifexists("EventTime",        datetime(null))),
+      todatetime(column_ifexists("DeviceReceiptTime",datetime(null))),
+      todatetime(column_ifexists("EventCreationTime",datetime(null))),
+      todatetime(column_ifexists("TimeCreated",      datetime(null))),
+      todatetime(column_ifexists("EventEndTime",     datetime(null))),
+      todatetime(column_ifexists("TimeGenerated",    datetime(null))) // fallback
+  )
+};
+
+union isfuzzy=true withsource=Table
+( DeviceEvents        | where TimeGenerated > ago(lookback) )
+( DeviceNetworkEvents | where TimeGenerated > ago(lookback) )
+( DeviceProcessEvents | where TimeGenerated > ago(lookback) )
+( SecurityEvent       | where TimeGenerated > ago(lookback) )
+( Syslog              | where TimeGenerated > ago(lookback) )
+( CommonSecurityLog   | where TimeGenerated > ago(lookback) )
+( OfficeActivity      | where TimeGenerated > ago(lookback) )
+( AzureActivity       | where TimeGenerated > ago(lookback) )
+( AzureDiagnostics    | where TimeGenerated > ago(lookback) )
+| invoke fn_resolve_source_time()
+| extend S1_sec = tolong(datetime_diff('second', TimeGenerated,    SourceTime)),
+         S2_sec = tolong(datetime_diff('second', ingestion_time(), TimeGenerated)),
+         S3_sec = tolong(datetime_diff('second', ingestion_time(), SourceTime)),
+         S1_min = round(toreal(S1_sec) / 60.0, 2),
+         S2_min = round(toreal(S2_sec) / 60.0, 2),
+         S3_min = round(toreal(S3_sec) / 60.0, 2),
+         S1_hhmmss = format_timespan(toreal(S1_sec) * 1s),
+         S2_hhmmss = format_timespan(toreal(S2_sec) * 1s),
+         S3_hhmmss = format_timespan(toreal(S3_sec) * 1s),
+         IngestTime = ingestion_time()
+| where S3_min > threshold_min
+| project Table, IngestTime, TimeGenerated, SourceTime,
+          S1_min, S2_min, S3_min,
+          S1_hhmmss, S2_hhmmss, S3_hhmmss,
+          SuspectedHost = coalesce(column_ifexists("Computer",""),
+                                   column_ifexists("DeviceName",""),
+                                   column_ifexists("HostName","")),
+          SourceIP       = column_ifexists("SourceIP",""),
+          DestinationIP  = column_ifexists("DestinationIP",""),
+          _ItemId
+| top 200 by S3_min desc
