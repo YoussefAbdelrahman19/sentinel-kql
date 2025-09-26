@@ -1,0 +1,40 @@
+// delays_minutes_summary.kql
+// Time-bucketed summary of S1/S2/S3 delays in minutes (p50/p95) per table.
+
+let lookback = 24h;
+let bucket   = 15m;
+
+let fn_resolve_source_time = (T:(*)) {
+  T
+  | extend SourceTime = coalesce(
+      todatetime(column_ifexists("Timestamp", datetime(null))),
+      todatetime(column_ifexists("EventTime", datetime(null))),
+      todatetime(column_ifexists("DeviceReceiptTime", datetime(null))),
+      todatetime(column_ifexists("EventCreationTime", datetime(null))),
+      todatetime(column_ifexists("TimeCreated", datetime(null))),
+      todatetime(column_ifexists("EventEndTime", datetime(null))),
+      todatetime(column_ifexists("TimeGenerated", datetime(null))) )
+};
+
+union isfuzzy=true withsource=Table
+( DeviceEvents        | where TimeGenerated > ago(lookback) )
+( DeviceNetworkEvents | where TimeGenerated > ago(lookback) )
+( DeviceProcessEvents | where TimeGenerated > ago(lookback) )
+( SecurityEvent       | where TimeGenerated > ago(lookback) )
+( Syslog              | where TimeGenerated > ago(lookback) )
+( CommonSecurityLog   | where TimeGenerated > ago(lookback) )
+( OfficeActivity      | where TimeGenerated > ago(lookback) )
+( AzureActivity       | where TimeGenerated > ago(lookback) )
+( AzureDiagnostics    | where TimeGenerated > ago(lookback) )
+| invoke fn_resolve_source_time()
+| extend S1_min = round(toreal(datetime_diff('second', TimeGenerated,    SourceTime))/60.0, 2),
+         S2_min = round(toreal(datetime_diff('second', ingestion_time(), TimeGenerated))/60.0, 2),
+         S3_min = round(toreal(datetime_diff('second', ingestion_time(), SourceTime))/60.0, 2),
+         IngestBucket = bin(ingestion_time(), bucket)
+| summarize
+    p50_S1_min = percentile(S1_min, 50), p95_S1_min = percentile(S1_min, 95),
+    p50_S2_min = percentile(S2_min, 50), p95_S2_min = percentile(S2_min, 95),
+    p50_S3_min = percentile(S3_min, 50), p95_S3_min = percentile(S3_min, 95),
+    Events = count()
+  by Table, IngestBucket
+| order by Table asc, IngestBucket asc
