@@ -1,0 +1,58 @@
+// delays_unified.kql
+// Summarize S1/S2/S3 delays per table over time buckets.
+let lookback = 24h;
+let bucket   = 15m;
+let fn_resolve_source_time = (T:(*)) {
+    T
+    | extend SourceTime = coalesce(
+        todatetime(column_ifexists("Timestamp",        datetime(null))),
+        todatetime(column_ifexists("EventTime",        datetime(null))),
+        todatetime(column_ifexists("DeviceReceiptTime",datetime(null))),
+        todatetime(column_ifexists("EventCreationTime",datetime(null))),
+        todatetime(column_ifexists("TimeCreated",      datetime(null))),
+        todatetime(column_ifexists("EventEndTime",     datetime(null))),
+        todatetime(column_ifexists("TimeGenerated",    datetime(null)))
+    )
+};
+union isfuzzy=true withsource=Table
+(
+    DeviceEvents        | where TimeGenerated > ago(lookback)
+),
+(
+    DeviceNetworkEvents | where TimeGenerated > ago(lookback)
+),
+(
+    DeviceProcessEvents | where TimeGenerated > ago(lookback)
+),
+(
+    SecurityEvent       | where TimeGenerated > ago(lookback)
+),
+(
+    Syslog              | where TimeGenerated > ago(lookback)
+),
+(
+    CommonSecurityLog   | where TimeGenerated > ago(lookback)
+),
+(
+    OfficeActivity      | where TimeGenerated > ago(lookback)
+),
+(
+    AzureActivity       | where TimeGenerated > ago(lookback)
+),
+(
+    AzureDiagnostics    | where TimeGenerated > ago(lookback)
+)
+| invoke fn_resolve_source_time()
+| extend S1_Source_to_Record = tolong(datetime_diff("second", TimeGenerated,    SourceTime))
+| extend S2_Record_to_Ingest = tolong(datetime_diff("second", ingestion_time(), TimeGenerated))
+| extend S3_Source_to_Ingest = tolong(datetime_diff("second", ingestion_time(), SourceTime))
+| extend IngestBucket = bin(ingestion_time(), bucket)
+| extend ClockSkew = iff(S1_Source_to_Record < 0 or S2_Record_to_Ingest < 0 or S3_Source_to_Ingest < 0, 1, 0)
+| summarize
+    Events = count(),
+    p50_S1 = percentile(S1_Source_to_Record, 50), p95_S1 = percentile(S1_Source_to_Record, 95), max_S1 = max(S1_Source_to_Record),
+    p50_S2 = percentile(S2_Record_to_Ingest, 50), p95_S2 = percentile(S2_Record_to_Ingest, 95), max_S2 = max(S2_Record_to_Ingest),
+    p50_S3 = percentile(S3_Source_to_Ingest, 50), p95_S3 = percentile(S3_Source_to_Ingest, 95), max_S3 = max(S3_Source_to_Ingest),
+    SkewHits = sum(ClockSkew)
+  by Table, IngestBucket
+| order by Table asc, IngestBucket asc

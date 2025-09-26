@@ -1,0 +1,13 @@
+// alert_detection_lag.kql
+// Measure detection latency between activity start and alert creation time.
+let lookback = 14d;
+SecurityAlert
+| where TimeGenerated > ago(lookback)
+| extend DetectLagSec = tolong(datetime_diff("second", TimeGenerated, StartTime))
+| summarize
+    Alerts = count(),
+    p50_Lag = percentile(DetectLagSec, 50),
+    p95_Lag = percentile(DetectLagSec, 95),
+    max_Lag = max(DetectLagSec)
+  by ProductName, VendorName, AlertName=DisplayName, Severity
+| order by p95_Lag desc

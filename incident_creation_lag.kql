@@ -1,0 +1,13 @@
+// incident_creation_lag.kql
+// Measure latency from first activity to incident creation.
+let lookback = 14d;
+SecurityIncident
+| where CreatedTime > ago(lookback)
+| extend IncidentLagSec = tolong(datetime_diff("second", CreatedTime, FirstActivityTime))
+| summarize
+    Incidents=count(),
+    p50_Lag=percentile(IncidentLagSec,50),
+    p95_Lag=percentile(IncidentLagSec,95),
+    max_Lag=max(IncidentLagSec)
+  by Severity, Status
+| order by p95_Lag desc

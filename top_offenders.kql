@@ -1,0 +1,41 @@
+// top_offenders.kql
+// List worst S3 delays (source->ingest) above threshold with useful pivots.
+let lookback = 24h;
+let threshold = 10m;
+let fn_resolve_source_time = (T:(*)) {
+    T
+    | extend SourceTime = coalesce(
+        todatetime(column_ifexists("Timestamp",        datetime(null))),
+        todatetime(column_ifexists("EventTime",        datetime(null))),
+        todatetime(column_ifexists("DeviceReceiptTime",datetime(null))),
+        todatetime(column_ifexists("EventCreationTime",datetime(null))),
+        todatetime(column_ifexists("TimeCreated",      datetime(null))),
+        todatetime(column_ifexists("EventEndTime",     datetime(null))),
+        todatetime(column_ifexists("TimeGenerated",    datetime(null)))
+    )
+};
+union isfuzzy=true withsource=Table
+( DeviceEvents        | where TimeGenerated > ago(lookback) )
+( DeviceNetworkEvents | where TimeGenerated > ago(lookback) )
+( DeviceProcessEvents | where TimeGenerated > ago(lookback) )
+( SecurityEvent       | where TimeGenerated > ago(lookback) )
+( Syslog              | where TimeGenerated > ago(lookback) )
+( CommonSecurityLog   | where TimeGenerated > ago(lookback) )
+( OfficeActivity      | where TimeGenerated > ago(lookback) )
+( AzureActivity       | where TimeGenerated > ago(lookback) )
+( AzureDiagnostics    | where TimeGenerated > ago(lookback) )
+| invoke fn_resolve_source_time()
+| extend S1 = tolong(datetime_diff("second", TimeGenerated,    SourceTime)),
+         S2 = tolong(datetime_diff("second", ingestion_time(), TimeGenerated)),
+         S3 = tolong(datetime_diff("second", ingestion_time(), SourceTime)),
+         IngestTime = ingestion_time()
+| where S3 > tolong(threshold / 1s)
+| project Table, IngestTime, TimeGenerated, SourceTime,
+          S1_Source_to_Record = S1, S2_Record_to_Ingest = S2, S3_Source_to_Ingest = S3,
+          Computer = column_ifexists("Computer",""),
+          DeviceName = column_ifexists("DeviceName",""),
+          HostName   = column_ifexists("HostName",""),
+          SourceIP   = column_ifexists("SourceIP",""),
+          DestinationIP = column_ifexists("DestinationIP",""),
+          _ItemId
+| top 200 by S3 desc
