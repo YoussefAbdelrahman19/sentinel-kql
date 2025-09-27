@@ -1,0 +1,64 @@
+// KQL Query to measure latency across all three stages for all tables in Sentinel
+let LatencyAnalysis = union withsource=TableName *
+| where TimeGenerated > ago(24h)  // Adjust time range as needed
+| where isnotnull(TimeGenerated)
+| project 
+    TableName,
+    TimeGenerated,
+    TimeReceived = _TimeReceived,
+    IngestionTime = ingestion_time()
+| extend 
+    // Stage 1: Source to Cloud Latency (Agent/Source to Azure ingestion point)
+    Stage1_SourceToCloud_Seconds = toreal(datetime_diff('second', TimeReceived, TimeGenerated)),
+    
+    // Stage 2: Processing Latency (Ingestion point to indexed/available)  
+    Stage2_ProcessingLatency_Seconds = toreal(datetime_diff('second', IngestionTime, TimeReceived)),
+    
+    // Stage 3: Total End-to-End Latency (Source to fully available)
+    Stage3_TotalLatency_Seconds = toreal(datetime_diff('second', IngestionTime, TimeGenerated))
+| where Stage1_SourceToCloud_Seconds >= 0 and Stage2_ProcessingLatency_Seconds >= 0 and Stage3_TotalLatency_Seconds >= 0
+| summarize 
+    RecordCount = count(),
+    
+    // Stage 1 Metrics - Source to Cloud
+    Stage1_Avg_Seconds = round(avg(Stage1_SourceToCloud_Seconds), 2),
+    Stage1_Max_Seconds = round(max(Stage1_SourceToCloud_Seconds), 2),
+    Stage1_Min_Seconds = round(min(Stage1_SourceToCloud_Seconds), 2),
+    Stage1_P95_Seconds = round(percentile(Stage1_SourceToCloud_Seconds, 95), 2),
+    
+    // Stage 2 Metrics - Processing Latency  
+    Stage2_Avg_Seconds = round(avg(Stage2_ProcessingLatency_Seconds), 2),
+    Stage2_Max_Seconds = round(max(Stage2_ProcessingLatency_Seconds), 2),
+    Stage2_Min_Seconds = round(min(Stage2_ProcessingLatency_Seconds), 2),
+    Stage2_P95_Seconds = round(percentile(Stage2_ProcessingLatency_Seconds, 95), 2),
+    
+    // Stage 3 Metrics - Total End-to-End
+    Stage3_Avg_Seconds = round(avg(Stage3_TotalLatency_Seconds), 2),
+    Stage3_Max_Seconds = round(max(Stage3_TotalLatency_Seconds), 2),
+    Stage3_Min_Seconds = round(min(Stage3_TotalLatency_Seconds), 2),
+    Stage3_P95_Seconds = round(percentile(Stage3_TotalLatency_Seconds, 95), 2),
+    
+    LastEventTime = max(TimeGenerated)
+    by TableName
+| extend 
+    // Convert to minutes for easier reading
+    Stage1_Avg_Minutes = round(Stage1_Avg_Seconds / 60, 2),
+    Stage2_Avg_Minutes = round(Stage2_Avg_Seconds / 60, 2),  
+    Stage3_Avg_Minutes = round(Stage3_Avg_Seconds / 60, 2)
+| project 
+    TableName,
+    RecordCount,
+    LastEventTime,
+    Stage1_SourceToCloud_Avg_Min = Stage1_Avg_Minutes,
+    Stage1_Max_Min = round(Stage1_Max_Seconds / 60, 2),
+    Stage2_Processing_Avg_Min = Stage2_Avg_Minutes,
+    Stage2_Max_Min = round(Stage2_Max_Seconds / 60, 2),
+    Stage3_Total_Avg_Min = Stage3_Avg_Minutes,
+    Stage3_Max_Min = round(Stage3_Max_Seconds / 60, 2),
+    Stage1_P95_Min = round(Stage1_P95_Seconds / 60, 2),
+    Stage2_P95_Min = round(Stage2_P95_Seconds / 60, 2),
+    Stage3_P95_Min = round(Stage3_P95_Seconds / 60, 2)
+| order by Stage3_Total_Avg_Min desc;
+
+// Display results
+LatencyAnalysis
