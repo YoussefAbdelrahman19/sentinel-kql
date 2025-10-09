@@ -1,0 +1,203 @@
+let lookback = 14d;
+SecurityAlert
+| where TimeGenerated > ago(lookback)
+| where ProductName in~ ("Microsoft Defender for Endpoint","Microsoft Defender for Cloud","Microsoft Defender XDR")
+| where AlertName has_cs "process injection" or tostring(ExtendedProperties.AlertType) =~ "SuspiciousProcessInjection"
+| extend Host = tostring(parse_json(Entities)[0].HostName)
+| summarize Alerts=count(), First=min(TimeGenerated), Last=max(TimeGenerated), Hosts=dcount(Host)
+          by AlertName, ProductName
+| order by Alerts desc
+##
+let lookback = 14d;
+AlertInfo
+| where TimeGenerated > ago(lookback)
+| where ServiceSource in~ ("Microsoft Defender for Endpoint","Microsoft Defender XDR")
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter (AlertEvidence | project AlertId, DeviceName, FileName, FolderPath, SHA256=FileSha256, Signer, Issuer) on AlertId
+| summarize Alerts=count(), Devices=dcount(DeviceName), First=min(TimeGenerated), Last=max(TimeGenerated)
+          by Title, FileName, FolderPath, SHA256, tostring(Signer)
+| order by Alerts desc
+##
+AlertInfo
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter AlertEvidence on AlertId
+| summarize Devices=dcount(DeviceName), Alerts=count() by DeviceName, FileName, FolderPath, FileSha256
+| order by Devices desc, Alerts desc
+##
+let lookback = 14d;
+AlertInfo
+| where TimeGenerated > ago(lookback)
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter AlertEvidence on AlertId
+| summarize Devices=dcount(DeviceName), First=min(TimeGenerated), Last=max(TimeGenerated)
+          by FileName, FolderPath, FileSha256, Signer
+| extend Signed = iif(isnotempty(Signer), "Yes","No")
+| order by Devices desc
+
+##
+let t = 2h;
+let inj = AlertInfo
+| where Title has_cs "Suspicious process injection"
+| project InjTime=TimeGenerated, DeviceName, AlertId;
+let hi = AlertInfo
+| where Severity in~ ("High","Medium")
+| project HiTime=TimeGenerated, DeviceName, HiTitle=Title, HiSeverity=Severity;
+inj
+| join kind=leftouter (hi) on DeviceName
+| where isnull(HiTime) or abs(datetime_diff('minute', InjTime, HiTime)) > 120
+| summarize BenignLike=count() by DeviceName
+| order by BenignLike desc
+##
+let AllowedPaths = dynamic(["C:\\Program Files (x86)\\Vom...\\TimeShift\\","C:\\Program Files\\VMware\\","C:\\Program Files\\Citrix\\"]);
+AlertInfo
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter AlertEvidence on AlertId
+| where array_length(AllowedPaths) == 0 or any(AllowedPaths has_cs FolderPath)
+| summarize count() by FileName, FolderPath, tostring(Signer)
+
+####
+// Prevalence & context check for one hash and device in last 14d
+let h = "<SHA256_FROM_ALERT>";
+let d = "<DeviceName_FROM_ALERT>";
+let t = 14d;
+let inj = AlertInfo
+| where TimeGenerated > ago(t)
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter AlertEvidence on AlertId
+| where FileSha256 == h;
+let prev = inj | summarize Devices=dcount(DeviceName);
+let hi = AlertInfo
+| where TimeGenerated > ago(t)
+| where DeviceName == d and Severity in~ ("High","Medium")
+| project TimeGenerated, Title, Severity;
+prev, hi
+####
+
+AlertInfo
+| where TimeGenerated > ago(14d)
+| where Title has_cs "Suspicious process injection observed"
+| join kind=leftouter AlertEvidence on AlertId
+| summarize Alerts=count(), Devices=dcount(DeviceName)
+          by FileName, FolderPath, FileSha256, Signer
+
+###
+
+let lookback = 14d;
+let inj = AlertInfo
+| where TimeGenerated > ago(lookback)
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter AlertEvidence on AlertId;
+inj
+| summarize Devices=dcount(DeviceName), FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
+          by FileSha256, FileName, FolderPath, Signer;
+
+###
+let t = 2h;
+let injTimes = AlertInfo
+| where Title has_cs "Suspicious process injection"
+| project DeviceName, InjTime=TimeGenerated;
+let hi = AlertInfo
+| where Severity in~ ("High", "Medium")
+| project DeviceName, HiTime=TimeGenerated, HiTitle=Title;
+injTimes
+| join kind=leftouter hi on DeviceName
+| where isnull(HiTime) or abs(datetime_diff('minute', InjTime, HiTime)) > 120
+| summarize BenignLike=count() by DeviceName;
+###
+let lookback = 14d;
+AlertInfo
+| where TimeGenerated > ago(lookback)
+| where ServiceSource in~ ("Microsoft Defender for Endpoint","Microsoft Defender XDR")
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter (AlertEvidence
+    | project AlertId, DeviceName, FileName, FolderPath, FileSha256, Signer) on AlertId
+| summarize Alerts=count(), Devices=dcount(DeviceName), First=min(TimeGenerated), Last=max(TimeGenerated)
+          by Title, FileName, FolderPath, FileSha256, tostring(Signer)
+| order by Alerts desc
+###
+
+let t = 2h;
+let inj = AlertInfo
+| where Title has_cs "Suspicious process injection"
+| project InjTime=TimeGenerated, DeviceName, AlertId;
+let hi = AlertInfo
+| where Severity in ("High","Medium")
+| project HiTime=TimeGenerated, DeviceName, HiTitle=Title, HiSeverity=Severity;
+inj
+| join kind=leftouter hi on DeviceName
+| where isnull(HiTime) or abs(datetime_diff("minute", InjTime, HiTime)) > 120
+| summarize BenignLike=count() by DeviceName
+| order by BenignLike desc
+###
+let lookback = 30d;
+AlertInfo
+| where TimeGenerated > ago(lookback)
+| where Title has_cs "Suspicious process injection"
+| join kind=leftouter AlertEvidence on AlertId
+| summarize Devices=dcount(DeviceName), Alerts=count() by FileSha256, FileName, FolderPath, tostring(Signer)
+| order by Devices desc, Alerts desc
+
+##
+
+let lookback = 14d;
+SecurityAlert
+| where TimeGenerated > ago(lookback)
+| where ProductName in~ ("Microsoft Defender for Endpoint","Microsoft Defender for Cloud","Microsoft Defender XDR")
+| where AlertName has_cs "process injection"
+| summarize Alerts=count(), First=min(TimeGenerated), Last=max(TimeGenerated) by AlertName, ProductName
+| order by Alerts desc
+##
+let start = datetime(2025-01-01);
+let end   = datetime(2025-10-01);
+AlertInfo
+| where TimeGenerated between (start .. end)
+| where ServiceSource in ("Microsoft Defender for Endpoint","Microsoft Defender XDR")
+| where Title has_cs "Suspicious process injection"
+| summarize by AlertId
+##
+####################################
+Logic App Design – BulkClose-ProcInjection-Backlog (one-time run)
+
+Trigger
+- Manual (HTTP request) or Recurrence (Run once).
+
+Actions
+1) Initialize variables: counters (Closed/Skipped/Failed), beforeDate (e.g., 2025-10-01T00:00:00Z).
+2) HTTP (Managed Identity) – GET incidents (top=200) with OData filter:
+   properties/title contains 'Suspicious process injection' and properties/createdTimeUtc lt <beforeDate>
+3) Until loop (while nextLink exists):
+   - Parse response.value array → For each incident:
+     * If properties.status == 'Closed' → increment Skipped.
+     * Else HTTP PATCH (Managed Identity) to set:
+       status=Closed, classification=BenignPositive,
+       classificationComment='Auto-closed backlog as Benign/Expected (proc injection) – PI-BENIGN-V1',
+       labels: auto-closed, proc-injection, backlog-2025Q4.
+     * Increment counters and Apply delay every N items (e.g., 3s per 200).
+   - If nextLink present → HTTP GET nextLink and continue.
+4) Compose a summary and send Teams/Email notification to SOC.
+5) Optional: Append results to a storage table or Log Analytics custom log for audit.
+
+Permissions
+- System-assigned Managed Identity with “Microsoft Sentinel Responder” (or Contributor) on the workspace.
+
+Safety Switches (optional before PATCH)
+- KQL to rule out devices with High/Medium alerts ±2h.
+- Only close Informational/Low severity (if your policy requires).
+
+Outcome
+- Historical incidents closed with consistent classification & comments.
+- No changes to new incidents behavior unless you add a separate Automation Rule for new ones.########################
+
+
+// KQL_Backlog_Targeting.kql
+// Find candidate AlertIds and their Incidents time ranges for backlog closure
+let start = datetime(2024-01-01);
+let end   = datetime(2025-10-01);
+// Defender XDR streams
+AlertInfo
+| where TimeGenerated between (start .. end)
+| where ServiceSource in ("Microsoft Defender for Endpoint","Microsoft Defender XDR")
+| where Title has_cs "Suspicious process injection"
+| summarize by AlertId
+##############
+
