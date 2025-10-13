@@ -4,7 +4,7 @@ Version: 2025-10-09 (Europe/Budapest)
 
 Executive Summary
 This guide provides a production-grade, audit-friendly workflow to (1) surface Defender “Suspicious process injection observed” alerts inside Microsoft Sentinel, (2) triage them at scale with high confidence so that benign/expected cases are automatically closed, and (3) escalate truly risky cases for investigation. It assumes you are operating in a fully authorized environment.
-https://chatgpt.com/share/68e806c1-d1fc-8010-bb08-809f6025b1e9
+https://chatgpt.com/share/68ecf4f1-e1ac-8010-bc9f-12086db6d001
 Authoritative References (key load-bearing sources)
 - Microsoft Learn – Automation rules: suppress noisy incidents, close incidents with reasons, trigger playbooks (Oct 16, 2024): https://learn.microsoft.com/en-us/azure/sentinel/automate-incident-handling-with-automation-rules
 - Microsoft Learn – Handle false positives (Feb 13, 2025): https://learn.microsoft.com/en-us/azure/sentinel/false-positives
