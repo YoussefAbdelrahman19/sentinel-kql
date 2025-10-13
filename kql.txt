@@ -200,4 +200,417 @@ AlertInfo
 | where Title has_cs "Suspicious process injection"
 | summarize by AlertId
 ##############
+// ============================================
+// Phase 1: Initial Alert Analysis
+// ============================================
 
+// Query 1: Get all VirtualTimeService related alerts
+// Purpose: فهم كل الـ alerts اللي حصلت
+// ----------------------------------------------
+SecurityAlert
+| where TimeGenerated > ago(90d)
+| where DisplayName has_any ("Suspicious process injection", "Monitored keystrokes", 
+                             "potentially malicious code", "Defense evasion", 
+                             "Multi-stage")
+| extend Entities = parse_json(Entities)
+| mv-expand Entity = Entities
+| extend 
+    EntityType = tostring(Entity.Type),
+    HostName = tostring(Entity.HostName),
+    FileName = tostring(Entity.Name),
+    FilePath = tostring(Entity.Directory),
+    ProcessCommandLine = tostring(Entity.CommandLine)
+| where HostName startswith "vmiamqapps" 
+   or FileName contains "VirtualTimeService64.exe"
+   or FilePath contains "TimeShiftX"
+| project 
+    TimeGenerated,
+    AlertName = DisplayName,
+    AlertSeverity = AlertSeverity,
+    HostName,
+    FileName,
+    FilePath,
+    ProcessCommandLine,
+    CompromisedEntity,
+    Status,
+    Entities = todynamic(Entities)
+| order by TimeGenerated desc
+
+
+// Query 2: Alert Frequency Analysis
+// Purpose: شوف الـ pattern - هل بيحصل كل يوم؟ ساعات معينة؟
+// ----------------------------------------------
+SecurityAlert
+| where TimeGenerated > ago(90d)
+| where DisplayName has_any ("Suspicious process injection", "Monitored keystrokes")
+| extend Entities = parse_json(Entities)
+| mv-expand Entity = Entities
+| extend HostName = tostring(Entity.HostName)
+| where HostName startswith "vmiamqapps"
+| summarize 
+    AlertCount = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    Hosts = make_set(HostName),
+    AlertTypes = make_set(DisplayName)
+    by bin(TimeGenerated, 1d)
+| order by TimeGenerated desc
+| extend DaysSince = datetime_diff('day', now(), TimeGenerated)
+
+
+// ============================================
+// Phase 2: Process Behavior Analysis
+// ============================================
+
+// Query 3: VirtualTimeService64.exe - Full Process Details
+// Purpose: شوف الـ process ده بيعمل إيه بالظبط
+// ----------------------------------------------
+DeviceProcessEvents
+| where TimeGenerated > ago(90d)
+| where FileName =~ "VirtualTimeService64.exe" 
+   or ProcessCommandLine contains "VirtualTimeService64"
+   or FolderPath contains "TimeShiftX"
+| where DeviceName startswith "vmiamqapps"
+| project 
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessParentFileName,
+    AccountName,
+    ProcessId,
+    SHA256,
+    MD5
+| order by TimeGenerated desc
+
+
+// Query 4: Parent-Child Process Tree
+// Purpose: مين اللي شغل الـ process ده؟ ومين اللي اتشغل بعده؟
+// ----------------------------------------------
+let targetProcess = "VirtualTimeService64.exe";
+DeviceProcessEvents
+| where TimeGenerated > ago(30d)
+| where DeviceName startswith "vmiamqapps"
+| where FileName =~ targetProcess or InitiatingProcessFileName =~ targetProcess
+| extend 
+    ProcessLevel = case(
+        FileName =~ targetProcess, "Target",
+        InitiatingProcessFileName =~ targetProcess, "Child",
+        "Unknown"
+    )
+| project 
+    TimeGenerated,
+    DeviceName,
+    ProcessLevel,
+    ProcessName = FileName,
+    ProcessCmdLine = ProcessCommandLine,
+    ParentProcess = InitiatingProcessFileName,
+    ParentCmdLine = InitiatingProcessCommandLine,
+    GrandParent = InitiatingProcessParentFileName,
+    AccountName,
+    SHA256
+| order by TimeGenerated desc, ProcessLevel
+
+
+// Query 5: Network Connections
+// Purpose: هل الـ process ده بيتصل بـ internet؟ فين؟
+// ----------------------------------------------
+DeviceNetworkEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+   or InitiatingProcessFolderPath contains "TimeShiftX"
+| project 
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    RemoteIP,
+    RemotePort,
+    RemoteUrl,
+    Protocol,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    LocalIP,
+    LocalPort
+| order by TimeGenerated desc
+
+
+// ============================================
+// Phase 3: Suspicious Behavior Analysis
+// ============================================
+
+// Query 6: Process Injection Events
+// Purpose: شوف الـ injection ده حصل إزاي
+// ----------------------------------------------
+DeviceEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where ActionType in ("CreateRemoteThreadApiCall", "QueueUserApcRemoteApiCall", 
+                       "SetThreadContextRemoteApiCall", "ProcessInjection")
+| where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+   or FileName =~ "VirtualTimeService64.exe"
+| project 
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    FileName,
+    InitiatingProcessFileName,
+    TargetProcessName = AdditionalFields.TargetProcessName,
+    InjectionType = AdditionalFields.InjectionType,
+    AdditionalFields = parse_json(AdditionalFields)
+| order by TimeGenerated desc
+
+
+// Query 7: Registry Modifications
+// Purpose: هل عمل أي تعديل على الـ Registry؟
+// ----------------------------------------------
+DeviceRegistryEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+   or InitiatingProcessFolderPath contains "TimeShiftX"
+| project 
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    PreviousRegistryValueData,
+    InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+
+// Query 8: File Operations
+// Purpose: شوف الـ files اللي اتعملت/اتعدلت/اتمسحت
+// ----------------------------------------------
+DeviceFileEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+   or FileName =~ "VirtualTimeService64.exe"
+   or FolderPath contains "TimeShiftX"
+| project 
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    FileName,
+    FolderPath,
+    FileSize,
+    SHA256,
+    MD5,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+
+// ============================================
+// Phase 4: Keylogging Investigation
+// ============================================
+
+// Query 9: Keyboard Hook Detection
+// Purpose: ده الأهم - هل فيه keylogger فعلاً؟
+// ----------------------------------------------
+DeviceEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where ActionType in ("SetWindowsHookEx", "GetAsyncKeyState", 
+                       "GetKeyState", "RegisterHotKey")
+| where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+   or FileName contains "VirtualTimeService64"
+| project 
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    HookType = AdditionalFields.HookType,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    AdditionalFields = parse_json(AdditionalFields)
+| order by TimeGenerated desc
+
+
+// Query 10: Clipboard Access
+// Purpose: هل بيقرأ الـ clipboard؟
+// ----------------------------------------------
+DeviceEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where ActionType in ("ClipboardData", "GetClipboardData")
+| where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+| project 
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    InitiatingProcessFileName,
+    AdditionalFields
+| order by TimeGenerated desc
+
+
+// ============================================
+// Phase 5: User Context Analysis
+// ============================================
+
+// Query 11: User Activity on QA Machines
+// Purpose: مين بيستخدم الـ machines دي؟ ليه؟
+// ----------------------------------------------
+DeviceLogonEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| summarize 
+    LogonCount = count(),
+    FirstLogon = min(TimeGenerated),
+    LastLogon = max(TimeGenerated),
+    LogonTypes = make_set(LogonType),
+    AccountsUsed = make_set(AccountName)
+    by DeviceName
+| order by LogonCount desc
+
+
+// Query 12: Scheduled Tasks or Services
+// Purpose: هل الـ process ده بيتشغل أوتوماتيك؟
+// ----------------------------------------------
+DeviceProcessEvents
+| where TimeGenerated > ago(90d)
+| where DeviceName startswith "vmiamqapps"
+| where FileName in ("schtasks.exe", "sc.exe", "powershell.exe")
+| where ProcessCommandLine contains "VirtualTimeService64"
+   or ProcessCommandLine contains "TimeShiftX"
+| project 
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName
+| order by TimeGenerated desc
+
+
+// ============================================
+// Phase 6: Comparison Analysis
+// ============================================
+
+// Query 13: Same Process on Non-QA Machines
+// Purpose: هل الـ process ده موجود على machines تانية؟
+// ----------------------------------------------
+DeviceProcessEvents
+| where TimeGenerated > ago(90d)
+| where FileName =~ "VirtualTimeService64.exe"
+| extend MachineType = case(
+    DeviceName startswith "vmiamqapps", "QA",
+    "Production/Other"
+)
+| summarize 
+    Count = count(),
+    Machines = make_set(DeviceName),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by MachineType
+| order by MachineType
+
+
+// Query 14: File Hash Reputation Check
+// Purpose: شوف الـ hash ده معروف ولا لأ
+// ----------------------------------------------
+let targetHashes = 
+    DeviceProcessEvents
+    | where TimeGenerated > ago(7d)
+    | where FileName =~ "VirtualTimeService64.exe"
+    | where DeviceName startswith "vmiamqapps"
+    | distinct SHA256, MD5;
+DeviceFileCertificateInfo
+| where SHA256 in (targetHashes)
+| project 
+    SHA256,
+    Signer,
+    SignerHash,
+    IssuerName,
+    IsTrusted,
+    IsRootSignerMicrosoft
+| union (
+    targetHashes
+    | project SHA256, MD5
+)
+
+
+// ============================================
+// Phase 7: Timeline Reconstruction
+// ============================================
+
+// Query 15: Complete Timeline of Events
+// Purpose: رتب كل الأحداث في timeline واحد
+// ----------------------------------------------
+let timeRange = ago(7d);
+let targetDevice = "vmiamqapps"; // غير ده للـ specific machine
+union 
+    (DeviceProcessEvents
+    | where TimeGenerated > timeRange
+    | where DeviceName startswith targetDevice
+    | where FileName =~ "VirtualTimeService64.exe" 
+       or InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+    | project TimeGenerated, DeviceName, EventType = "Process", 
+              Details = strcat("Process: ", FileName, " | CMD: ", ProcessCommandLine)),
+    (DeviceNetworkEvents
+    | where TimeGenerated > timeRange
+    | where DeviceName startswith targetDevice
+    | where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+    | project TimeGenerated, DeviceName, EventType = "Network", 
+              Details = strcat("Connection to: ", RemoteIP, ":", RemotePort)),
+    (DeviceRegistryEvents
+    | where TimeGenerated > timeRange
+    | where DeviceName startswith targetDevice
+    | where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+    | project TimeGenerated, DeviceName, EventType = "Registry", 
+              Details = strcat(ActionType, " | Key: ", RegistryKey)),
+    (DeviceFileEvents
+    | where TimeGenerated > timeRange
+    | where DeviceName startswith targetDevice
+    | where InitiatingProcessFileName =~ "VirtualTimeService64.exe"
+    | project TimeGenerated, DeviceName, EventType = "File", 
+              Details = strcat(ActionType, " | File: ", FileName)),
+    (SecurityAlert
+    | where TimeGenerated > timeRange
+    | extend Entities = parse_json(Entities)
+    | mv-expand Entity = Entities
+    | extend HostName = tostring(Entity.HostName)
+    | where HostName startswith targetDevice
+    | project TimeGenerated, DeviceName = HostName, EventType = "Alert", 
+              Details = strcat("Alert: ", DisplayName, " | Severity: ", AlertSeverity))
+| order by TimeGenerated asc
+
+
+// ============================================
+// Phase 8: Correlation with Known Software
+// ============================================
+
+// Query 16: Check Software Inventory
+// Purpose: هل TimeShiftX مثبت رسمي على الـ machines دي؟
+// ----------------------------------------------
+DeviceTvmSoftwareInventory
+| where DeviceName startswith "vmiamqapps"
+| where SoftwareName contains "TimeShift" 
+   or SoftwareName contains "Virtual Time"
+   or SoftwareVendor contains "Vorne"
+| project 
+    DeviceName,
+    SoftwareName,
+    SoftwareVendor,
+    SoftwareVersion,
+    EndOfSupportDate,
+    OSPlatform
+| order by DeviceName
+
+
+// Query 17: Installed Applications
+// Purpose: شوف كل الـ applications المثبتة
+// ----------------------------------------------
+DeviceRegistryEvents
+| where TimeGenerated > ago(1d)
+| where DeviceName startswith "vmiamqapps"
+| where RegistryKey has "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+| where RegistryValueName in ("DisplayName", "Publisher", "InstallLocation")
+| summarize arg_max(TimeGenerated, *) by DeviceName, RegistryKey, RegistryValueName
+| project DeviceName, Application = RegistryValueData
+| where Application contains "Time" or Application contains "Shift"
