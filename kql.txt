@@ -732,3 +732,36 @@ SecurityIncident
 // 3. Export incident numbers
 // 4. Use bulk action in Incidents blade to close
 // 5. Select: Status=Closed, Classification=BenignPositive, Comment from ClosureComment field
+
+-------------------------------------------------------------------------------------------------15-10
+// Query 1: Monitor Auto-Closed Alerts
+SecurityIncident
+| where TimeGenerated > ago(30d)
+| where Status == "Closed"
+| where Classification == "BenignPositive"
+| where Comments has "TimeShiftX"
+| project TimeGenerated, Title, Status, Classification, Comments, Owner
+| order by TimeGenerated desc
+
+// Query 2: Validate Closed Alerts (Ensure No False Negatives)
+SecurityAlert
+| where TimeGenerated > ago(7d)
+| where AlertName has_any ("Suspicious process injection", "Process injection", "Defense evasion", "Multi-stage")
+| where tostring(parse_json(ExtendedProperties).["Host Name"]) startswith "vmiamqapps"
+| extend FileDirectory = tostring(parse_json(Entities)[0].Directory)
+| extend FileName = tostring(parse_json(Entities)[0].Name)
+| where FileDirectory has "TimeShiftX"
+| where FileName has "VirtualTimeService64.exe"
+| project TimeGenerated, AlertName, FileName, FileDirectory, HostName, Severity, Status
+| order by TimeGenerated desc
+
+// Query 3: Alert on Suspicious Deviations
+SecurityAlert
+| where TimeGenerated > ago(24h)
+| where AlertName has "process injection"
+| where tostring(parse_json(ExtendedProperties).["Host Name"]) startswith "vmiamqapps"
+| extend FileName = tostring(parse_json(Entities)[0].Name)
+| where FileName !has "VirtualTimeService64.exe"  // Alert if different file
+| project TimeGenerated, AlertName, FileName, HostName
+```
+
