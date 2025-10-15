@@ -614,3 +614,49 @@ DeviceRegistryEvents
 | summarize arg_max(TimeGenerated, *) by DeviceName, RegistryKey, RegistryValueName
 | project DeviceName, Application = RegistryValueData
 | where Application contains "Time" or Application contains "Shift"
+
+========================================================================= 15-10
+// KQL Query to identify and suppress TimeShiftX alerts on QA VMs
+// This query filters alerts that match expected TimeShiftX behavior
+
+SecurityAlert
+| where TimeGenerated > ago(5m)
+| where AlertName has_any ("Suspicious process injection", "Process injection observed")
+| where ProviderName in ("MDATP", "Azure Advanced Threat Protection")
+// Extract extended properties
+| extend ExtProps = parse_json(ExtendedProperties)
+| extend HostName = tostring(ExtProps["Host name"])
+| extend FileName = tostring(ExtProps["File name"])
+| extend FileDirectory = tostring(ExtProps["File directory"])
+| extend MachineDomain = tostring(ExtProps["Machine Domain"])
+// Filter conditions for TimeShiftX on QA VMs
+| where HostName startswith "vmiamqapps"
+| where FileDirectory contains "TimeShiftX"
+| where FileName =~ "VirtualTimeService64.exe"
+| where MachineDomain has "morgenfund.com"
+// Additional validation: Check severity
+| where AlertSeverity in ("Medium", "Low")
+// Project relevant fields for monitoring
+| project 
+    TimeGenerated,
+    AlertName,
+    HostName,
+    FileName,
+    FileDirectory,
+    MachineDomain,
+    AlertSeverity,
+    Description,
+    CompromisedEntity,
+    SystemAlertId,
+    ExtendedProperties
+// Mark as expected behavior
+| extend AlertAction = "Suppressed - Expected QA Behavior"
+| extend Reason = "TimeShiftX virtual time manipulation tool"
+| extend Environment = "QA Testing"
+// Optional: Log for audit trail
+| extend AuditLog = pack(
+    "SuppressedTime", now(),
+    "Reason", "Legitimate TimeShiftX behavior",
+    "Environment", "QA VMs",
+    "AutomationRule", "Suppress-TimeShiftX-QA"
+)
