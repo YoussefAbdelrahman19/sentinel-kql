@@ -660,3 +660,75 @@ SecurityAlert
     "Environment", "QA VMs",
     "AutomationRule", "Suppress-TimeShiftX-QA"
 )
+=============================15-10
+// Query to identify ALL historical TimeShiftX alerts that need closure
+// Use this in Sentinel Incidents blade for bulk actions
+
+SecurityIncident
+| where TimeGenerated between (datetime(2025-01-01) .. now())
+| where Status in ("New", "Active")  // Only open incidents
+| where Title has_any ("Suspicious process injection", "Process injection")
+| extend IncidentProps = parse_json(AdditionalData)
+| extend AlertProducts = tostring(IncidentProps["alertProductNames"])
+| where AlertProducts has_any ("Microsoft Defender for Endpoint", "Azure ATP")
+// Parse entities to find host and file information
+| mv-expand Entity = parse_json(tostring(IncidentProps["entities"]))
+| extend EntityType = tostring(Entity["type"])
+| extend EntityProps = Entity
+// Extract Host entities
+| extend HostName = iff(EntityType == "host", 
+    tostring(EntityProps["hostName"]), 
+    "")
+// Extract File entities
+| extend FileName = iff(EntityType == "file", 
+    tostring(EntityProps["fileName"]), 
+    "")
+| extend FileDirectory = iff(EntityType == "file", 
+    tostring(EntityProps["directory"]), 
+    "")
+// Aggregate to incident level
+| summarize 
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    Hosts = make_set(HostName),
+    Files = make_set(FileName),
+    Directories = make_set(FileDirectory),
+    AlertCount = count()
+    by IncidentNumber, IncidentName, Status, Severity, IncidentUrl
+// Filter for TimeShiftX related incidents
+| where Hosts has_any ("vmiamqapps01", "vmiamqapps07", "vmiamqapps")
+| where Files has "VirtualTimeService64.exe"
+| where Directories has "TimeShiftX"
+// Calculate age of incident
+| extend IncidentAge = datetime_diff('day', now(), FirstSeen)
+// Project fields for bulk action
+| project 
+    IncidentNumber,
+    IncidentName,
+    Status,
+    Severity,
+    FirstSeen,
+    LastSeen,
+    IncidentAge,
+    Hosts,
+    Files,
+    Directories,
+    AlertCount,
+    IncidentUrl,
+    // Closure metadata
+    RecommendedAction = "Close",
+    Classification = "BenignPositive - Suspicious but expected",
+    ClosureComment = strcat(
+        "Auto closing legitimate and expected activities on QA virtual machines. ",
+        "TimeShiftX (VirtualTimeService64.exe) is an approved testing tool. ",
+        "Incident age: ", IncidentAge, " days. ",
+        "Total alerts: ", AlertCount
+    )
+| order by FirstSeen desc
+
+// USAGE INSTRUCTIONS:
+// 1. Run this query in Sentinel Logs
+// 2. Review the results to confirm they match TimeShiftX alerts
+// 3. Export incident numbers
+// 4. Use bulk action in Incidents blade to close
+// 5. Select: Status=Closed, Classification=BenignPositive, Comment from ClosureComment field
