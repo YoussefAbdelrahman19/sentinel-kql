@@ -1,0 +1,124 @@
+// KQL Query لرصد Mail Bombing في Sentinel
+// يستثني الصناديق غير الحرجة ويركز على الأنماط المشبوهة
+
+let lookback = 1h; // الفترة الزمنية للمراقبة
+let threshold = 100; // الحد الأدنى للرسائل المتشابهة في الفترة
+let excludedRecipients = dynamic(["info@", "noreply@", "no-reply@", "donotreply@"]); // الصناديق المستثناة
+
+EmailEvents
+| where TimeGenerated >= ago(lookback)
+| where EmailDirection == "Inbound"
+| where DeliveryAction == "Delivered"
+// استثناء الصناديق غير الحرجة
+| where not(RecipientEmailAddress has_any (excludedRecipients))
+// تجميع حسب المستلم والموضوع والمرسل
+| summarize 
+    EmailCount = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    UniqueSenders = dcount(SenderFromAddress),
+    SampleSenders = make_set(SenderFromAddress, 10),
+    HasAttachments = countif(AttachmentCount > 0),
+    HasUrls = countif(UrlCount > 0),
+    DeliveryLocations = make_set(DeliveryLocation)
+    by RecipientEmailAddress, Subject, bin(TimeGenerated, 10m)
+// الرسائل التي تتجاوز الحد
+| where EmailCount >= threshold
+// ترتيب حسب الأكثر خطورة
+| extend Severity = case(
+    EmailCount >= 500 and HasUrls > 0, "High",
+    EmailCount >= 300, "Medium",
+    "Low"
+)
+| project 
+    TimeGenerated,
+    RecipientEmailAddress,
+    Subject,
+    EmailCount,
+    UniqueSenders,
+    SampleSenders,
+    HasAttachments,
+    HasUrls,
+    Severity,
+    FirstSeen,
+    LastSeen,
+    DeliveryLocations
+| sort by EmailCount desc
+
+
+
+
+
+
+
+
+
+// قاعدة متقدمة تستثني الردود التلقائية المشروعة
+
+let lookback = 1h;
+let threshold = 150;
+let autoReplyPatterns = dynamic(["Automatic Reply", "Out of Office", "Auto-Reply", "Vacation Response"]);
+let excludedRecipients = dynamic(["info@", "noreply@", "no-reply@"]);
+
+EmailEvents
+| where TimeGenerated >= ago(lookback)
+| where EmailDirection == "Inbound"
+// استثناء الردود التلقائية المشروعة للصناديق غير الحرجة
+| extend IsAutoReply = iff(Subject has_any (autoReplyPatterns), true, false)
+| extend IsExcludedRecipient = iff(RecipientEmailAddress has_any (excludedRecipients), true, false)
+// استثناء فقط إذا كانت ردود تلقائية على صناديق مستثناة
+| where not(IsAutoReply and IsExcludedRecipient)
+| summarize 
+    EmailCount = count(),
+    UniqueSenders = dcount(SenderFromAddress),
+    SampleSubjects = make_set(Subject, 5),
+    AvgAttachments = avg(AttachmentCount),
+    AvgUrls = avg(UrlCount),
+    ThreatDetected = countif(ThreatTypes != "")
+    by RecipientEmailAddress, bin(TimeGenerated, 10m)
+| where EmailCount >= threshold
+| extend RiskScore = case(
+    ThreatDetected > 0 and EmailCount > 300, 100,
+    AvgUrls > 2 and EmailCount > 200, 80,
+    EmailCount > 400, 70,
+    50
+)
+| where RiskScore >= 70
+| project TimeGenerated, RecipientEmailAddress, EmailCount, UniqueSenders, 
+          SampleSubjects, AvgAttachments, AvgUrls, ThreatDetected, RiskScore
+| sort by RiskScore desc, EmailCount desc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+EmailEvents
+| where Timestamp >= ago(24h)
+| where EmailActionPolicy contains "Mail bombing"
+    or DetectionMethods contains "Mail bombing"
+| summarize 
+    EmailCount = count(),
+    AffectedUsers = dcount(RecipientEmailAddress),
+    Senders = make_set(SenderFromAddress, 20)
+    by bin(Timestamp, 1h)
+| project Timestamp, EmailCount, AffectedUsers, Senders
+| sort by EmailCount desc
+
+
+

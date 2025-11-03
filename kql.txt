@@ -764,4 +764,18 @@ SecurityAlert
 | where FileName !has "VirtualTimeService64.exe"  // Alert if different file
 | project TimeGenerated, AlertName, FileName, HostName
 ```
-
+SecurityAlert
+| where TimeGenerated > ago(90d)
+| where ProviderName == "MDATP"
+| where DisplayName has_any ("Suspicious process injection", "Process injection", "Monitored keystrokes", "Defense evasion", "Multi-stage")
+| where Status != "Resolved"
+| extend Entities = parse_json(Entities)
+| extend FileEntities = Entities[0]
+| extend HostName = tostring(ExtendedProperties["Host Name"])
+| extend FileName = tostring(FileEntities.FileName)
+| extend Directory = tostring(FileEntities.Directory)
+| where HostName startswith "vmiamqapps"
+| where Directory has "TimeShiftX"
+| where FileName has "VirtualTimeService64.exe"
+| project SystemAlertId, DisplayName, AlertSeverity, TimeGenerated, HostName, FileName, Directory, CompromisedEntity
+| take 5000

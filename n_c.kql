@@ -1,4 +1,4 @@
-// KQL Query to measure latency across all three stages for all tables in Sentinel
+  // KQL Query to measure latency across all three stages for all tables in Sentinel
 let LatencyAnalysis = union withsource=TableName *
 | where TimeGenerated > ago(24h)  // Adjust time range as needed
 | where isnotnull(TimeGenerated)
