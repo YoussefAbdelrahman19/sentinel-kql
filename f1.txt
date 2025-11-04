@@ -307,3 +307,75 @@ union
 | where isnotempty(User) and User !endswith "$"  // Exclude computer accounts
 | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType, CorrelationId
 | sort by TimeGenerated desc
+
+
+
+
+
+
+
+
+
+let TimeFrame = 1h;
+union 
+    // Azure AD Audit Logs - AAD DC Management Operations
+    (AuditLogs
+    | where TimeGenerated > ago(TimeFrame)
+    | where TargetResources has_any ("AAD DC", "AADDC", "Domain Services")
+        or OperationName has_any ("AAD DC", "AADDC", "Domain Services")
+        or Category == "DirectoryManagement"
+    | extend 
+        User = tostring(InitiatedBy.user.userPrincipalName),
+        SourceIP = tostring(InitiatedBy.user.ipAddress),
+        EventType = "AAD DC Management",
+        Details = strcat("Operation: ", OperationName, " | Result: ", Result),
+        CorrelationId = tostring(CorrelationId)
+    | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, Result, CorrelationId),
+    // Kerberos Authentication Events
+    (AADDomainServicesAccountLogon
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        User = tolower(extract("Logon Account:\\t(.+)", 1, tostring(ResultDescription))),
+        SourceIP = tostring(IpAddress),
+        EventType = "Kerberos Authentication",
+        Details = strcat("Package: ", PackageName, " | Result: ", ResultType)
+    | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType, CorrelationId),
+    // Logon/Logoff Events
+    (AADDomainServicesLogonLogoff
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        User = tolower(TargetUserName),
+        SourceIP = tostring(WorkstationName),
+        EventType = "Logon/Logoff",
+        Details = strcat("LogonType: ", LogonType, " | AuthPackage: ", AuthenticationPackageName, " | Result: ", ResultType)
+    | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType, CorrelationId),
+    // Account Management Activities
+    (AADDomainServicesAccountManagement
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        User = coalesce(tolower(SubjectUserName), tolower(extract("Subject Account Name:\\t(.+)", 1, tostring(ResultDescription)))),
+        SourceIP = "",
+        EventType = "Account Management",
+        Details = strcat("Operation: ", OperationName, " | Target: ", coalesce(TargetUserName, SamAccountName, "N/A"))
+    | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType, CorrelationId),
+    // Directory Service Access
+    (AADDomainServicesDirectoryServiceAccess
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        User = tolower(extract("Subject Account Name:\\t(.+)", 1, tostring(ResultDescription))),
+        SourceIP = "",
+        EventType = "Directory Access",
+        Details = strcat("Operation: ", OperationName)
+    | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType, CorrelationId),
+    // Policy Changes
+    (AADDomainServicesPolicyChange
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        User = tolower(extract("Subject Account Name:\\t(.+)", 1, tostring(ResultDescription))),
+        SourceIP = "",
+        EventType = "Policy Change",
+        Details = strcat("Operation: ", OperationName)
+    | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType, CorrelationId)
+| where isnotempty(User) and User !endswith "$"
+| project TimeGenerated, User, SourceIP, EventType, Details, OperationName
+| sort by TimeGenerated desc
