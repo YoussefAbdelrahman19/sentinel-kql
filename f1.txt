@@ -122,3 +122,126 @@ EmailEvents
 
 
 
+
+
+
+let TimeFrame = 1h;
+let FailedLogonThreshold = 5;
+// Get all AAD DS authentications
+let AADDSAuthentications = 
+    AADDomainServicesAccountLogon
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        AccountName = tostring(split(tolower(TargetUserName), "@")[0]),
+        AccountDomain = tostring(split(tolower(TargetUserName), "@")[1]),
+        IsSuccess = iff(ResultType == "0" or ResultType == "Success", true, false)
+    | summarize 
+        TotalAttempts = count(),
+        SuccessfulAttempts = countif(IsSuccess == true),
+        FailedAttempts = countif(IsSuccess == false),
+        FirstAttempt = min(TimeGenerated),
+        LastAttempt = max(TimeGenerated),
+        UniqueIPs = dcount(IpAddress),
+        IPList = make_set(IpAddress),
+        ErrorCodes = make_set(ResultType)
+        by TargetUserName, AccountName, AccountDomain;
+// Get AAD DC Admin group changes
+let AdminGroupChanges = 
+    AuditLogs
+    | where TimeGenerated > ago(TimeFrame)
+    | where OperationName in ("Add member to group", "Add group member")
+    | where TargetResources has_any ("AAD DC Administrators", "AADDC")
+    | extend 
+        InitiatedBy = tostring(InitiatedBy.user.userPrincipalName),
+        TargetUser = tostring(TargetResources[0].userPrincipalName),
+        Action = "Group Membership Change"
+    | project TimeGenerated, InitiatedBy, TargetUser, Action, OperationName;
+// Combine and analyze
+AADDSAuthentications
+| where SuccessfulAttempts > 0 or FailedAttempts >= FailedLogonThreshold
+| extend 
+    AlertSeverity = case(
+        SuccessfulAttempts > 0, "High",
+        FailedAttempts >= FailedLogonThreshold, "Medium",
+        "Low"
+    ),
+    AlertDescription = case(
+        SuccessfulAttempts > 0, strcat("Successful AAD DS authentication detected for cloud-native user: ", TargetUserName),
+        FailedAttempts >= FailedLogonThreshold, strcat("Multiple failed AAD DS authentication attempts (", FailedAttempts, ") detected for: ", TargetUserName),
+        "Suspicious activity"
+    )
+| project-reorder 
+    FirstAttempt,
+    LastAttempt,
+    TargetUserName,
+    AlertSeverity,
+    AlertDescription,
+    TotalAttempts,
+    SuccessfulAttempts,
+    FailedAttempts,
+    UniqueIPs,
+    IPList
+    
+    
+    
+    
+    
+let TimeFrame = 1h;
+// Union all relevant tables
+union 
+    // AAD DS Authentication attempts
+    (AADDomainServicesAccountLogon
+    | where TimeGenerated > ago(TimeFrame)
+    | extend 
+        User = tostring(TargetUserName),
+        SourceIP = tostring(IpAddress),
+        AccessType = "AAD DS Authentication",
+        Status = tostring(ResultType)),
+    // AAD DC related group operations
+    (AuditLogs
+    | where TimeGenerated > ago(TimeFrame)
+    | where TargetResources has_any ("AAD DC", "AADDC") 
+        or OperationName has_any ("AAD DC", "AADDC")
+    | extend 
+        User = tostring(InitiatedBy.user.userPrincipalName),
+        SourceIP = tostring(InitiatedBy.user.ipAddress),
+        AccessType = strcat("AAD DC Admin Operation: ", OperationName),
+        Status = tostring(Result)),
+    // AAD DC related sign-ins
+    (SigninLogs
+    | where TimeGenerated > ago(TimeFrame)
+    | where AppDisplayName has_any ("AAD", "Domain", "LDAP", "Kerberos")
+        or ResourceDisplayName has_any ("AAD DC", "Domain Services")
+    | extend 
+        User = tostring(UserPrincipalName),
+        SourceIP = tostring(IPAddress),
+        AccessType = strcat("Sign-in to: ", AppDisplayName),
+        Status = tostring(ResultType)),
+    // Azure Activity related to AAD DS
+    (AzureActivity
+    | where TimeGenerated > ago(TimeFrame)
+    | where ResourceProvider == "Microsoft.AAD"
+        or OperationNameValue has "DomainServices"
+    | extend 
+        User = tostring(Caller),
+        SourceIP = tostring(CallerIpAddress),
+        AccessType = strcat("Azure Operation: ", OperationNameValue),
+        Status = tostring(ActivityStatusValue))
+| extend 
+    IsSuccess = Status in ("0", "Success", "Succeeded", "Accepted")
+| project 
+    TimeGenerated,
+    User,
+    SourceIP,
+    AccessType,
+    Status,
+    IsSuccess
+| summarize 
+    TotalAccess = count(),
+    SuccessfulAccess = countif(IsSuccess == true),
+    FailedAccess = countif(IsSuccess == false),
+    FirstAccess = min(TimeGenerated),
+    LastAccess = max(TimeGenerated),
+    AccessTypes = make_set(AccessType),
+    IPAddresses = make_set(SourceIP)
+    by User
