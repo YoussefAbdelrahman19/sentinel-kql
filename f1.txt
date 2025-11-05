@@ -789,3 +789,105 @@ CRITICAL - Privileged Access Assigned: {{AccessPackageName}} to {{TargetUserUPN}
 **Generate alert when number of query results:**
 ```
 Is greater than: 0
+
+
+
+
+// Monitor Access Package Requests - Comprehensive View
+AuditLogs
+| where TimeGenerated > ago(1h)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Add access package assignment request",
+    "Add member to access package assignment",
+    "Update access package assignment request",
+    "Approve access package assignment request"
+)
+| extend TargetResource = parse_json(TargetResources[0])
+| extend AccessPackage = tostring(TargetResource.displayName)
+| extend Requestor = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUserUPN = tostring(TargetResource.userPrincipalName)
+| extend Status = tostring(Result)
+| extend RequestState = tostring(parse_json(tostring(TargetResource.modifiedProperties))[0].newValue)
+| where AccessPackage contains "AAD DC Administrators_emergency" or AccessPackage contains "Administrators_emergency"
+| project
+    TimeGenerated,
+    OperationName,
+    AccessPackage,
+    Requestor,
+    TargetUserUPN,
+    Status,
+    RequestState,
+    CorrelationId,
+    ResultReason,
+    AdditionalDetails
+| extend
+    AccountCustomEntity = TargetUserUPN,
+    IPCustomEntity = ""
+```
+
+---
+
+## **Analytics Rule Configuration**
+
+### **General Settings**
+- **Name**: `Access Package Activation - Emergency DC Administrators`
+- **Description**: `Detects when the emergency DC Administrators access package is requested or activated. This is a privileged access package that should be monitored for security purposes.`
+- **Severity**: **High**
+- **MITRE ATT&CK Tactics**: 
+  - Privilege Escalation (TA0004)
+  - Persistence (TA0003)
+- **MITRE ATT&CK Techniques**:
+  - T1078.004 - Valid Accounts: Cloud Accounts
+  - T1098 - Account Manipulation
+
+### **Rule Query Settings**
+- **Query Frequency**: 1 hour
+- **Lookback Period**: 1 hour
+- **Alert Threshold**: Greater than 0
+
+### **Entity Mapping**
+- **Account**: `AccountCustomEntity`
+- **IP Address**: `IPCustomEntity` (if available)
+
+### **Alert Details**
+- **Alert Name Format**: `Emergency DC Admin Access Package Requested by {{Requestor}}`
+- **Alert Description Format**: 
+```
+User {{TargetUserUPN}} has been assigned to the emergency DC Administrators access package.
+Requestor: {{Requestor}}
+Status: {{Status}}
+Time: {{TimeGenerated}}
+Correlation ID: {{CorrelationId}}
+
+
+
+
+
+
+// Monitor Access Package Assignment Requests - Emergency DC Administrators
+AuditLogs
+| where TimeGenerated > ago(1h)
+| where OperationName has_any ("Add member to access package assignment", "Update access package assignment request")
+| extend AccessPackageDetails = parse_json(TargetResources[0])
+| extend AccessPackageName = tostring(AccessPackageDetails.displayName)
+| extend InitiatedBy = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUser = tostring(TargetResources[0].userPrincipalName)
+| extend RequestId = tostring(TargetResources[0].id)
+| extend ResultStatus = tostring(Result)
+| where AccessPackageName contains "AAD DC Administrators_emergency"
+| project 
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    InitiatedBy,
+    TargetUser,
+    ResultStatus,
+    RequestId,
+    CorrelationId,
+    Identity,
+    Category,
+    AdditionalDetails
+| extend 
+    AccountCustomEntity = TargetUser,
+    HostCustomEntity = ""
