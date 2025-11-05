@@ -520,3 +520,128 @@ AuditLogs
     Result,
     CorrelationId,
     AADOperationType
+    
+    
+    
+    
+    
+    
+    
+    
+    AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Administrator directly assigns user to access package",
+    "Auto approve access package assignment request"
+)
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUserUPN = tostring(TargetResources[1].userPrincipalName)
+| extend TargetUserDisplayName = tostring(TargetResources[1].displayName)
+| project 
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    InitiatorUPN,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    Result,
+    CorrelationId
+    
+    
+    AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Administrator directly assigns user to access package",
+    "Auto approve access package assignment request"
+)
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| where AccessPackageName contains "DC" or AccessPackageName contains "Administrator" or AccessPackageName contains "emergency"
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUserUPN = tostring(TargetResources[1].userPrincipalName)
+| project 
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    InitiatorUPN,
+    TargetUserUPN,
+    Result
+    
+    
+    
+    AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Administrator directly assigns user to access package",
+    "Auto approve access package assignment request"
+)
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| where AccessPackageName contains "BR_InfoSec_Member"  // غير الاسم ده للـ package اللي انت عايزه
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUserUPN = tostring(TargetResources[1].userPrincipalName)
+| extend TargetUserDisplayName = tostring(TargetResources[1].displayName)
+| project 
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    InitiatorUPN,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    Result,
+    CorrelationId,
+    AADOperationType
+    
+    
+    AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Administrator directly assigns user to access package",
+    "Auto approve access package assignment request"
+)
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| where AccessPackageName contains "BR_InfoSec_Member"  // غير الاسم ده للـ package اللي انت عايزه
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUserUPN = tostring(TargetResources[1].userPrincipalName)
+| extend TargetUserDisplayName = tostring(TargetResources[1].displayName)
+| project 
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    InitiatorUPN,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    Result,
+    CorrelationId,
+    AADOperationType
+    
+    
+    
+    AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Administrator directly assigns user to access package",
+    "Auto approve access package assignment request"
+)
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend TargetUserUPN = tostring(TargetResources[1].userPrincipalName)
+| extend TargetUserDisplayName = tostring(TargetResources[1].displayName)
+| project 
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    InitiatorUPN,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    Result,
+    CorrelationId
