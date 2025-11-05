@@ -463,3 +463,7 @@ union
 | where isnotempty(User) and User !endswith "$"
 | project TimeGenerated, User, SourceIP, EventType, Details, OperationName, ResultType
 | sort by TimeGenerated desc
+
+
+
+https://chatgpt.com/share/690b3777-8d48-8010-ae75-63dfd5500353
