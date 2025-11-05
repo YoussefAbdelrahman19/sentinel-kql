@@ -491,3 +491,32 @@ AuditLogs
     Result,
     CorrelationId,
     AADOperationType
+    
+    
+    
+    
+    
+    
+    
+    AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in ("Fulfill access package assignment", "Administrator directly assigns user to access package")
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend InitiatorDisplayName = tostring(InitiatedBy.user.displayName)
+| extend TargetUserUPN = tostring(TargetResources[0].userPrincipalName)
+| extend TargetUserDisplayName = tostring(TargetResources[0].displayName)
+| where AccessPackageName contains "AAD DC Administrators_emergency"
+| project 
+    TimeGenerated,
+    OperationName,
+    Category,
+    AccessPackageName,
+    InitiatorUPN,
+    InitiatorDisplayName,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    Result,
+    CorrelationId,
+    AADOperationType
