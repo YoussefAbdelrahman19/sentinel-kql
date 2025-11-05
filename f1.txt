@@ -645,3 +645,147 @@ AuditLogs
     TargetUserDisplayName,
     Result,
     CorrelationId
+    
+    
+    
+    
+    
+    
+AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Administrator directly assigns user to access package",
+    "Auto approve access package assignment request",
+    "Ready to fulfill access package assignment request"
+)
+// Extract all possible fields from different structures
+| extend AccessPackageName = coalesce(
+    tostring(TargetResources[0].displayName),
+    tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[0].newValue)
+)
+| extend InitiatorUPN = coalesce(
+    tostring(InitiatedBy.user.userPrincipalName),
+    tostring(InitiatedBy.app.displayName)
+)
+| extend InitiatorDisplayName = tostring(InitiatedBy.user.displayName)
+// Target user can be in different positions
+| extend TargetUserUPN = coalesce(
+    tostring(TargetResources[1].userPrincipalName),
+    tostring(TargetResources[0].userPrincipalName)
+)
+| extend TargetUserDisplayName = coalesce(
+    tostring(TargetResources[1].displayName),
+    tostring(TargetResources[0].displayName)
+)
+| extend TargetUserObjectId = coalesce(
+    tostring(TargetResources[1].id),
+    tostring(TargetResources[0].id)
+)
+// Extract additional context
+| extend RequestId = tostring(AdditionalDetails[0].value)
+| extend IPAddress = tostring(InitiatedBy.user.ipAddress)
+| where AccessPackageName contains "DC" or AccessPackageName contains "Administrator" or AccessPackageName contains "emergency"
+| project 
+    TimeGenerated,
+    OperationName,
+    Result,
+    AccessPackageName,
+    InitiatorUPN,
+    InitiatorDisplayName,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    TargetUserObjectId,
+    IPAddress,
+    CorrelationId,
+    AADOperationType,
+    Category,
+    ResourceId
+| order by TimeGenerated desc
+```
+
+---
+
+## **⚙️ إعدادات Analytics Rule الاحترافية:**
+
+### **1. General Settings:**
+
+**Name:**
+```
+[CRITICAL] Privileged Access Package Assignment - DC Administrators Emergency Access
+```
+
+**Description:**
+```
+Detects when a user is assigned to a privileged Domain Controller Administrators emergency access package through Microsoft Entra ID Governance Entitlement Management. This rule monitors direct assignments, automatic fulfillment, and approval-based assignments to high-privilege access packages.
+
+Severity: Critical
+MITRE ATT&CK: T1098.003 (Account Manipulation: Additional Cloud Roles)
+Data Source: Azure AD Audit Logs - EntitlementManagement Category
+```
+
+**Severity:** `Critical`
+
+**MITRE ATT&CK Tactics:**
+- Persistence
+- Privilege Escalation
+
+**MITRE ATT&CK Techniques:**
+- T1098.003 - Account Manipulation: Additional Cloud Roles
+
+---
+
+### **2. Set Rule Logic:**
+
+**Rule Query:** استخدم الـ Query المحسّن فوق
+
+**Entity Mapping:**
+```
+Entity Type: Account
+- Account: TargetUserUPN (Identifier: UserPrincipalName)
+- Account: TargetUserObjectId (Identifier: AadUserId)
+
+Entity Type: Account (Secondary)
+- Account: InitiatorUPN (Identifier: UserPrincipalName)
+
+Entity Type: IP (if available)
+- Address: IPAddress
+```
+
+**Custom Details (Alert Details):**
+```
+AccessPackage: AccessPackageName
+AssignedToUser: TargetUserUPN
+AssignedByUser: InitiatorUPN
+OperationType: OperationName
+Status: Result
+```
+
+**Alert Details:**
+- Alert Name Format: 
+```
+CRITICAL - Privileged Access Assigned: {{AccessPackageName}} to {{TargetUserUPN}}
+```
+
+---
+
+### **3. Query Scheduling:**
+
+**Run query every:** `5 minutes` ⏱️
+
+**Lookup data from the last:** `5 minutes` 📅
+
+**لماذا 5 دقائق؟**
+- ✅ Detection سريع للـ critical events
+- ✅ بدون overlap في البيانات
+- ✅ Real-time alerting تقريباً
+- ✅ مش هيعمل performance issues
+
+---
+
+### **4. Alert Threshold:**
+
+**Generate alert when number of query results:**
+```
+Is greater than: 0
