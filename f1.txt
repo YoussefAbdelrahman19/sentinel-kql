@@ -891,3 +891,75 @@ AuditLogs
 | extend 
     AccountCustomEntity = TargetUser,
     HostCustomEntity = ""
+    
+    
+    
+    
+
+
+
+
+// Professional approach to extract Access Package data from TargetResources array
+AuditLogs
+| where TimeGenerated > ago(1h)
+| where Category == "EntitlementManagement"
+| where OperationName has_any (
+    "Add member to access package assignment",
+    "Add access package assignment request",
+    "Update access package assignment request",
+    "Approve access package assignment request"
+)
+// Expand the TargetResources array to process each object separately
+| mv-expand TargetResource = TargetResources
+| extend TargetResourceParsed = parse_json(TargetResource)
+// Extract all possible fields from each object
+| extend 
+    ResourceType = tostring(TargetResourceParsed.type),
+    ResourceId = tostring(TargetResourceParsed.id),
+    ResourceDisplayName = tostring(TargetResourceParsed.displayName),
+    ResourceUPN = tostring(TargetResourceParsed.userPrincipalName),
+    ResourceModifiedProperties = TargetResourceParsed.modifiedProperties
+// Now we filter and aggregate to get the right data
+| summarize 
+    AccessPackageName = maxif(ResourceDisplayName, ResourceType == "AccessPackage"),
+    TargetUserUPN = maxif(ResourceUPN, ResourceType == "User"),
+    TargetUserId = maxif(ResourceId, ResourceType == "User"),
+    TargetUserDisplayName = maxif(ResourceDisplayName, ResourceType == "User"),
+    AccessPackageId = maxif(ResourceId, ResourceType == "AccessPackage"),
+    AllResourceTypes = make_set(ResourceType),
+    AllDisplayNames = make_set(ResourceDisplayName)
+    by 
+    TimeGenerated,
+    OperationName,
+    Result,
+    ResultReason,
+    CorrelationId,
+    InitiatedBy,
+    AdditionalDetails,
+    Identity
+// Extract initiator information
+| extend InitiatorUPN = tostring(parse_json(InitiatedBy).user.userPrincipalName)
+| extend InitiatorId = tostring(parse_json(InitiatedBy).user.id)
+// Filter for our specific access package
+| where AccessPackageName contains "AAD DC Administrators_emergency" 
+    or AccessPackageName contains "Administrators_emergency"
+    or array_length(AllDisplayNames) > 0 and AllDisplayNames has_any ("AAD DC Administrators_emergency", "Administrators_emergency")
+// Final projection with clean fields
+| project
+    TimeGenerated,
+    OperationName,
+    AccessPackageName,
+    AccessPackageId,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    TargetUserId,
+    InitiatorUPN,
+    InitiatorId,
+    Result,
+    ResultReason,
+    CorrelationId,
+    AllResourceTypes,
+    AdditionalDetails
+| extend
+    AccountCustomEntity = TargetUserUPN,
+    InitiatorCustomEntity = InitiatorUPN
