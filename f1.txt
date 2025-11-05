@@ -1,6 +1,6 @@
 // KQL Query لرصد Mail Bombing في Sentinel
 // يستثني الصناديق غير الحرجة ويركز على الأنماط المشبوهة
-
+ ض
 let lookback = 1h; // الفترة الزمنية للمراقبة
 let threshold = 100; // الحد الأدنى للرسائل المتشابهة في الفترة
 let excludedRecipients = dynamic(["info@", "noreply@", "no-reply@", "donotreply@"]); // الصناديق المستثناة
@@ -467,3 +467,27 @@ union
 
 
 https://chatgpt.com/share/690b3777-8d48-8010-ae75-63dfd5500353
+
+
+AuditLogs
+| where TimeGenerated > ago(5m)
+| where Category == "EntitlementManagement"
+| where OperationName in ("Fulfill access package assignment", "Administrator directly assigns user to access package")
+| extend AccessPackageName = tostring(TargetResources[0].displayName)
+| extend InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName)
+| extend InitiatorDisplayName = tostring(InitiatedBy.user.displayName)
+| extend TargetUserUPN = tostring(TargetResources[0].userPrincipalName)
+| extend TargetUserDisplayName = tostring(TargetResources[0].displayName)
+| where AccessPackageName contains "AAD DC Administrators_emergency"
+| project 
+    TimeGenerated,
+    OperationName,
+    Category,
+    AccessPackageName,
+    InitiatorUPN,
+    InitiatorDisplayName,
+    TargetUserUPN,
+    TargetUserDisplayName,
+    Result,
+    CorrelationId,
+    AADOperationType
