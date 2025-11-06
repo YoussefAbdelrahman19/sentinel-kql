@@ -967,3 +967,78 @@ AuditLogs
     
     
     https://chatgpt.com/share/690c7aba-237c-8010-8703-9407b2352740
+    
+    
+    
+    let EmergencyAccessPackageName = "AAD DC Administrators_emergency";
+AuditLogs
+| where TimeGenerated >= ago(30d)
+| where Category == "EntitlementManagement"
+| where Result == "success"
+| where OperationName in (
+    "Fulfill access package assignment request",
+    "Auto approve access package assignment request"
+)
+// Parse the TargetResources properly
+| extend TargetResource = parse_json(tostring(TargetResources[0]))
+| extend AccessPackageName = tostring(TargetResource.displayName)
+| where AccessPackageName == EmergencyAccessPackageName
+// Parse InitiatedBy properly
+| extend InitiatedByUser = parse_json(tostring(InitiatedBy.user))
+| extend InitiatedByApp = parse_json(tostring(InitiatedBy.app))
+| extend 
+    InitiatorUPN = coalesce(
+        tostring(InitiatedByUser.userPrincipalName),
+        tostring(InitiatedByUser.mail),
+        "N/A"
+    ),
+    InitiatorObjectId = coalesce(
+        tostring(InitiatedByUser.id),
+        tostring(InitiatedByApp.id),
+        "N/A"
+    ),
+    InitiatorIpAddress = coalesce(
+        tostring(InitiatedByUser.ipAddress),
+        tostring(parse_json(tostring(InitiatedBy)).ipAddress),
+        "N/A"
+    ),
+    InitiatorAppId = coalesce(
+        tostring(InitiatedByApp.appId),
+        tostring(InitiatedByApp.servicePrincipalId),
+        "N/A"
+    ),
+    InitiatorAppName = coalesce(
+        tostring(InitiatedByApp.displayName),
+        tostring(InitiatedByApp.servicePrincipalName),
+        "N/A"
+    ),
+    InitiatorType = case(
+        isnotnull(InitiatedByUser.userPrincipalName), "User",
+        isnotnull(InitiatedByApp.appId), "Application",
+        "Unknown"
+    )
+// Get additional details from TargetResources
+| extend 
+    RequestId = tostring(TargetResource.id),
+    ModifiedProperties = TargetResource.modifiedProperties
+| project 
+    TimeGenerated,
+    OperationName,
+    Result,
+    InitiatorType,
+    InitiatorUPN,
+    InitiatorObjectId,
+    InitiatorIpAddress,
+    InitiatorAppId,
+    InitiatorAppName,
+    AccessPackageName,
+    RequestId,
+    CorrelationId,
+    ResultDescription,
+    AADTenantId,
+    ActivityDisplayName,
+    ActivityDateTime,
+    Category,
+    LoggedByService,
+    AADOperationType
+| order by TimeGenerated desc
