@@ -963,3 +963,7 @@ AuditLogs
 | extend
     AccountCustomEntity = TargetUserUPN,
     InitiatorCustomEntity = InitiatorUPN
+    
+    
+    
+    https://chatgpt.com/share/690c7aba-237c-8010-8703-9407b2352740
