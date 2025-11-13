@@ -15,3 +15,5 @@ Authoritative References (key load-bearing sources)
 - Red Canary – Process Injection technique & detections (2025 report set): https://redcanary.com/threat-detection-report/techniques/process-injection/ and https://redcanary.com/blog/threat-detection/2025-threat-detection-report/
 
 https://chatgpt.com/share/69145b8c-2880-8010-8f09-b5d7722bf535
+
+https://chatgpt.com/share/6915bab0-d810-8010-b865-9b9081fa3166
