@@ -139,3 +139,42 @@ Alert_Triggered_CommonSecurityLog_CL
 | join kind=leftouter Device_Last_Alert_Time on Device_s
 | where isnull(LastAlertTime) or datetime_diff('hour', now(), LastAlertTime) >= 72
 | project-away LastAlertTime
+
+
+
+
+
+
+
+
+let exclude_Maintainance_Devices = _GetWatchlist('OMV_LS_Maint')
+    | summarize by Device;
+
+let alert_list = SecurityIncident
+    | mv-expand AlertIds
+    | extend AlertIds = tostring(AlertIds)
+    | join kind=inner SecurityAlert on $left.AlertIds == $right.SystemAlertId
+    | project CustomDetails = parse_json(ExtendedProperties)["Custom Details"]
+    | where CustomDetails has "alertId"
+    | extend alert_ids_LA = tostring(parse_json(tostring(CustomDetails))["alertId_s"])  // ✅ تحويل لـ string
+    | where isnotempty(alert_ids_LA)
+    | distinct alert_ids_LA;  // ✅ دلوقتي هيشتغل
+
+// آخر مرة كل جهاز طلع له alert
+let Device_Last_Alert_Time = 
+    Alert_Triggered_CommonSecurityLog_CL
+    | where TimeGenerated > ago(72h)
+    | where alertName_s has "is not reporting more than threshold"
+    | where isnotempty(Device_s)
+    | summarize LastAlertTime = max(TimeGenerated) by Device_s;
+
+// Main Query
+Alert_Triggered_CommonSecurityLog_CL
+| where alertName_s has "is not reporting more than threshold"
+| where isnotempty(alertId_s)
+| where isnotempty(Device_s)
+| where alertId_s !in (alert_list)
+| where Device_s !in (exclude_Maintainance_Devices)
+| join kind=leftouter Device_Last_Alert_Time on Device_s
+| where isnull(LastAlertTime) or datetime_diff('hour', now(), LastAlertTime) >= 72
+| project-away LastAlertTime
