@@ -21,4 +21,121 @@ https://chatgpt.com/share/6915bab0-d810-8010-b865-9b9081fa3166
 
 https://chatgpt.com/share/6918f219-d45c-8010-867d-fbf872b61251
 
-https://chatgpt.com/share/69190318-6278-8010-9282-2b7b1003a3f5
+https://chatgpt.com/share/69190318-6278-8010-9282-2b7b1003a3f5 	
+
+
+
+let exclude_Maintainance_Devices = _GetWatchlist('OMV_LS_Maint')
+    | summarize by Device;
+
+let alert_list = SecurityIncident
+    | mv-expand AlertIds
+    | extend AlertIds = tostring(AlertIds)
+    | join kind=inner SecurityAlert on $left.AlertIds == $right.SystemAlertId
+    | project CustomDetails = parse_json(ExtendedProperties)["Custom Details"]
+    | where CustomDetails has "alertId"
+    | extend alert_ids_LA = parse_json(tostring(CustomDetails))["alertId_s"]
+    | where isnotempty(alert_ids_LA)
+    | project alert_ids_LA
+    | distinct alert_ids_LA;
+
+// الحل الأساسي: استبعاد الأجهزة اللي طلع لها alerts في آخر 72 ساعة
+let Recently_Alerted_Devices = 
+    Alert_Triggered_CommonSecurityLog_CL
+    | where TimeGenerated > ago(72h)
+    | where alertName_s has "is not reporting more than threshold"
+    | summarize LastAlertTime = max(TimeGenerated) by Device_s, DeviceVendor_s
+    | project Device_s;
+
+// Main Query
+Alert_Triggered_CommonSecurityLog_CL
+| where alertName_s has "is not reporting more than threshold"
+| where isnotempty(alertId_s)
+| where isnotempty(Device_s)
+| where alertId_s !in (alert_list)
+| where Device_s !in (Recently_Alerted_Devices)
+| where Device_s !in (exclude_Maintainance_Devices)
+
+
+
+
+
+
+
+let exclude_Maintainance_Devices = _GetWatchlist('OMV_LS_Maint')
+    | summarize by Device;
+
+let alert_list = SecurityIncident
+    | mv-expand AlertIds
+    | extend AlertIds = tostring(AlertIds)
+    | join kind=inner SecurityAlert on $left.AlertIds == $right.SystemAlertId
+    | project CustomDetails = parse_json(ExtendedProperties)["Custom Details"]
+    | where CustomDetails has "alertId"
+    | extend alert_ids_LA = parse_json(tostring(CustomDetails))["alertId_s"]
+    | where isnotempty(alert_ids_LA)
+    | project alert_ids_LA
+    | distinct alert_ids_LA;
+
+// استبعاد مزدوج: الأجهزة + الـ AlertIds
+let Recently_Alerted_Devices = 
+    Alert_Triggered_CommonSecurityLog_CL
+    | where TimeGenerated > ago(72h)
+    | where alertName_s has "is not reporting more than threshold"
+    | summarize 
+        LastAlertTime = max(TimeGenerated),
+        AlertCount = count()
+    by Device_s, DeviceVendor_s
+    | project Device_s;
+
+let Recently_Alerted_IDs = 
+    Alert_Triggered_CommonSecurityLog_CL
+    | where TimeGenerated > ago(72h)
+    | where alertName_s has "is not reporting more than threshold"
+    | where isnotempty(alertId_s)
+    | distinct alertId_s;
+
+// Main Query
+Alert_Triggered_CommonSecurityLog_CL
+| where alertName_s has "is not reporting more than threshold"
+| where isnotempty(alertId_s)
+| where isnotempty(Device_s)
+| where alertId_s !in (alert_list)
+| where alertId_s !in (Recently_Alerted_IDs)
+| where Device_s !in (Recently_Alerted_Devices)
+| where Device_s !in (exclude_Maintainance_Devices) 	
+
+
+
+
+let exclude_Maintainance_Devices = _GetWatchlist('OMV_LS_Maint')
+    | summarize by Device;
+
+let alert_list = SecurityIncident
+    | mv-expand AlertIds
+    | extend AlertIds = tostring(AlertIds)
+    | join kind=inner SecurityAlert on $left.AlertIds == $right.SystemAlertId
+    | project CustomDetails = parse_json(ExtendedProperties)["Custom Details"]
+    | where CustomDetails has "alertId"
+    | extend alert_ids_LA = parse_json(tostring(CustomDetails))["alertId_s"]
+    | where isnotempty(alert_ids_LA)
+    | project alert_ids_LA
+    | distinct alert_ids_LA;
+
+// آخر مرة كل جهاز طلع له alert
+let Device_Last_Alert_Time = 
+    Alert_Triggered_CommonSecurityLog_CL
+    | where TimeGenerated > ago(72h)
+    | where alertName_s has "is not reporting more than threshold"
+    | where isnotempty(Device_s)
+    | summarize LastAlertTime = max(TimeGenerated) by Device_s;
+
+// Main Query
+Alert_Triggered_CommonSecurityLog_CL
+| where alertName_s has "is not reporting more than threshold"
+| where isnotempty(alertId_s)
+| where isnotempty(Device_s)
+| where alertId_s !in (alert_list)
+| where Device_s !in (exclude_Maintainance_Devices)
+| join kind=leftouter Device_Last_Alert_Time on Device_s
+| where isnull(LastAlertTime) or datetime_diff('hour', now(), LastAlertTime) >= 72
+| project-away LastAlertTime
