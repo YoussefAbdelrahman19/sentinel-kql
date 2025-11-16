@@ -13,6 +13,8 @@ Authoritative References (key load-bearing sources)
 - Automation Rules REST API (Sep 1, 2025): https://learn.microsoft.com/en-us/rest/api/securityinsights/automation-rules/list?view=rest-securityinsights-2025-09-01
 - MITRE ATT&CK T1055 Process Injection: https://attack.mitre.org/techniques/T1055/
 - Red Canary – Process Injection technique & detections (2025 report set): https://redcanary.com/threat-detection-report/techniques/process-injection/ and https://redcanary.com/blog/threat-detection/2025-threat-detection-report/
+https://chatgpt.com/share/691a5306-ba3c-8010-9207-f7c5b49d03e5
+
 
 https://chatgpt.com/share/69145b8c-2880-8010-8f09-b5d7722bf535
 
