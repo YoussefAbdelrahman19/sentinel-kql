@@ -6,4 +6,5 @@
 - Microsoft Defender portal incidents overview (Jan 6, 2025): https://learn.microsoft.com/en-us/defender-xdr/incidents-overview
 - Automation Rules REST API (Sep 1, 2025): https://learn.microsoft.com/en-us/rest/api/securityinsights/automation-rules/list?view=rest-securityinsights-2025-09-01
 - MITRE ATT&CK T1055 Process Injection: https://attack.mitre.org/techniques/T1055/
-https://chatgpt.com/share/69386da5-9568-8010-8f65-c920e2f788cf
+https://chatgpt.com/share/69386da5-9568-8010-8f65-c920e2f788cf 
+https://chatgpt.com/share/6939784a-c938-8010-8381-b68bd5154dc4
