@@ -7,4 +7,5 @@
 - Automation Rules REST API (Sep 1, 2025): https://learn.microsoft.com/en-us/rest/api/securityinsights/automation-rules/list?view=rest-securityinsights-2025-09-01
 -
 
-https://chatgpt.com/share/693aa3ab-fa88-8010-8416-b3eb379e753f
+https://chatgpt.com/share/693b3766-a134-8010-9dc0-e6b4b085973f
+
