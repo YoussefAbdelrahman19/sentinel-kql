@@ -6,6 +6,4 @@
 - Microsoft Defender portal incidents overview (Jan 6, 2025): https://learn.microsoft.com/en-us/defender-xdr/incidents-overview
 - Automation Rules REST API (Sep 1, 2025): https://learn.microsoft.com/en-us/rest/api/securityinsights/automation-rules/list?view=rest-securityinsights-2025-09-01
 -
-
-https://chatgpt.com/share/693b3766-a134-8010-9dc0-e6b4b085973f
-
+https://chatgpt.com/share/693beb49-386c-8010-a297-a3cb14301c43
